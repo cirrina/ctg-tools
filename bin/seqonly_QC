@@ -1,0 +1,96 @@
+#!/bin/bash
+
+md5check=0
+run=0
+id="ctg"
+
+while getopts ":r:i:m" opt; do
+    case $opt in
+	r) run="$OPTARG"
+	   ;;
+	i) id="ctg_$OPTARG"
+	   ;;
+	m) md5check=1
+	   ;;
+	\?) echo "> Error: Invalid option -$OPTARG" >&2
+	    ;;
+	:) echo "> Error: -r needs runfolder path!!"
+    esac
+done
+
+if [ $run == 0 ]
+then
+    echo ""; echo ""
+    printf "> Usage: seqonly_QC -r <run folder path> [ -i id ] [ -m <set if md5sum run> ]"
+    echo ""; echo ""; echo "Exiting.."; echo "";
+else
+
+    echo "";    echo ""
+    
+    printf "> Runfolder: $run\n"
+    printf "> ID: $id\n"
+        
+    if [ $md5check == 1 ]
+    then
+	printf "> Running md5check: TRUE\n\n"
+    
+       
+	echo ">> This will generate md5sums recursively from:"
+	echo "$run";	echo ""; 	echo ""
+
+	read -p "Are you sure you want to do the recursive md5sum  (y/n)?  " choice
+
+	case "$choice" in
+	    y|Y ) echo "> yes - we will generate the md5sum! ";;
+	    n|N ) echo "> no - we will skip the md5sum!"; md5check=0;	printf "> Running md5check: FALSE\n";;
+	    * ) echo "> ERROR! invalid confirmation";;
+	esac
+
+    else
+	printf "> Running md5check: FALSE\n"
+    fi
+    
+    source activate /data/bnf/sw/miniconda3/envs/illumina-interop
+    
+    echo ""; echo ""; echo "";
+    echo "> Creating interop run report for folder: "; echo $run; echo "..."
+
+    mkdir -p $run/interop
+    
+    python /home/per/tools/Illumina_interop/Interop_STATS.py $run > $run/interop/Interop_Stats.txt
+    interop_summary $run --csv=1 > $run/interop/interop_summary
+    interop_index-summary $run --csv=1 > $run/interop/interop_index-summary
+    
+    echo "> Reports created can be found in: $run/interop "; echo "";
+        
+    # Check if demultiplexed and Stats exists
+    if [ -f $run/Data/Intensities/BaseCalls/Stats/Stats.json ]
+    then
+	
+	echo "> Running multiQC on interop output and demux stats .. ";	echo "..."
+	
+	multiqc $run/interop $run/Data/Intensities/BaseCalls/Stats/Stats.json -n $run/multiqc_${id}_seqonly_demux.html
+
+    elif [ -f $run/Fastq_Raw/Stats/Stats.json ]
+	then
+	    echo "> Running multiQC on interop output and demux stats .. ";	echo "..."
+	
+	multiqc $run/interop $run/Fastq_Raw/Stats/Stats.json -n $run/multiqc_${id}_seqonly_demux.html
+    else
+	echo "> Running multiQC on interop output only (Demux data not found) ..";	    echo "..."
+	
+	multiqc $run/interop -n $run/multiqc_${id}_seqonly.html
+    fi
+    
+    echo "> MultiQC report generated and can be found in $run!"
+    
+    if [ $md5check == 1 ]
+    then
+	cd $run
+	echo ""; echo "> Running md5sum recursively in $run"
+	find -type f -exec md5sum '{}' \; > md5sum.txt
+	echo "> Done. "
+	echo "> md5sum.txt written to $run"; echo "";
+    fi
+fi
+
